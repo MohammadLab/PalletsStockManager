@@ -110,6 +110,3 @@ Tested and optimized for:
 4. Push to the branch
 5. Create a Pull Request
 
-## Support
-
-For support and questions, please [create an issue](repository-issues-url) or contact the development team.
