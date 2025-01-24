@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orora Pallets Management System - Reports</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="header-nav">
+            <h1>Orora Pallets Management System</h1>
+        </div>
+        
+        <div class="nav-tabs">
+            <button class="tab-button" onclick="window.location.href='/'">Overview</button>
+            <button class="tab-button" onclick="window.location.href='/?tab=movement'">Import/Export</button>
+            <button class="tab-button active">Reports</button>
+        </div>
+
+        <div class="report-section">
+            <div class="form-group">
+                <label for="report-month-select">Select Month:</label>
+                <select id="report-month-select">
+                </select>
+            </div>
+
+            <div class="report-card">
+                <h2>Pallets Statistics</h2>
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <h3>Pallets Imported</h3>
+                        <p id="pallets-imported">0</p>
+                    </div>
+                    <div class="stat-item">
+                        <h3>Pallets Exported</h3>
+                        <p id="pallets-exported">0</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="report-card">
+                <h2>Maximum Number Pallet Present at One Time</h2>
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <h3>Total Maximum Pallets</h3>
+                        <p id="total-max-pallets">0</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Populate month selector
+        function populateMonthSelect() {
+            const select = document.getElementById('report-month-select');
+            const now = new Date();
+            
+            // Generate last 12 months
+            for(let i = 0; i < 12; i++) {
+                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const monthStr = d.toISOString().slice(0, 7);
+                const option = document.createElement('option');
+                option.value = monthStr;
+                option.textContent = d.toLocaleString('default', { month: 'long', year: 'numeric' });
+                select.appendChild(option);
+            }
+
+            select.addEventListener('change', loadMonthlyStats);
+            
+            // Load initial stats
+            if (select.value) {
+                loadMonthlyStats();
+            }
+        }
+
+        async function loadMonthlyStats() {
+            const month = document.getElementById('report-month-select').value;
+            try {
+                const [monthlyResponse, chargesResponse] = await Promise.all([
+                    fetch(`/api/monthly_stats?month=${month}`),
+                    fetch(`/api/calculate_charges?month=${month}`)
+                ]);
+                
+                const stats = await monthlyResponse.json();
+                const charges = await chargesResponse.json();
+                
+                document.getElementById('pallets-imported').textContent = stats.pallets_imported;
+                document.getElementById('pallets-exported').textContent = stats.pallets_exported;
+                document.getElementById('total-max-pallets').textContent = charges.total_max_pallets;
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        // Initialize
+        populateMonthSelect();
+    </script>
+</body>
+</html>

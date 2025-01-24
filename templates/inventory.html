@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orora Pallets Management System - Inventory</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="header-nav">
+            <h1>Orora Pallets Management System</h1>
+        </div>
+        
+        <div class="nav-tabs">
+            <button class="tab-button active" data-tab="overview">Overview</button>
+            <button class="tab-button" data-tab="movement">Import/Export</button>
+            <button class="tab-button" onclick="window.location.href='/reports'">Reports</button>
+        </div>
+
+        <div class="tab-content">
+            <div id="overview" class="active">
+                <h2>Current Inventory Overview</h2>
+                <table id="inventory-table">
+                    <thead>
+                        <tr>
+                            <th>Category</th>
+                            <th>Sage ID</th>
+                            <th>Item Name</th>
+                            <th>Current Stock</th>
+                            <th>Pallets Moved</th>
+                            <th>Max Pallets</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+
+            </div>
+
+            <div id="movement">
+                <h2>Import/Export Products</h2>
+                <div class="form-group">
+                    <label for="month-select">Select Month:</label>
+                    <select id="month-select">
+                    </select>
+                </div>
+                <div class="product-form">
+                    <div class="form-group">
+                        <label for="product-select">Select Product:</label>
+                        <select id="product-select">
+                            <option value="">Choose a product...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="quantity">Number of Cases:</label>
+                        <input type="number" id="quantity" min="1">
+                    </div>
+                    <div class="button-group">
+                        <button class="btn btn-import" onclick="handleMovement('import')">Import</button>
+                        <button class="btn btn-export" onclick="handleMovement('export')">Export</button>
+                    </div>
+                </div>
+
+                <h3>Movement History</h3>
+                <table id="movement-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Product</th>
+                            <th>Type</th>
+                            <th>Quantity</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let products = [];
+        let inventory = {};
+
+        // Check URL parameters on load
+        function checkUrlParams() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const tab = urlParams.get('tab');
+            if (tab === 'movement') {
+                document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-content > div').forEach(div => div.classList.remove('active'));
+                
+                document.querySelector('[data-tab="movement"]').classList.add('active');
+                document.getElementById('movement').classList.add('active');
+            }
+        }
+
+        // Tab switching
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.addEventListener('click', () => {
+                document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-content > div').forEach(div => div.classList.remove('active'));
+                
+                button.classList.add('active');
+                document.getElementById(button.dataset.tab).classList.add('active');
+                
+                if (button.dataset.tab === 'overview') {
+                    updateOverview();
+                }
+            });
+        });
+
+        // Load initial data
+        async function loadData() {
+            try {
+                const [productsResponse, inventoryResponse] = await Promise.all([
+                    fetch('/api/products'),
+                    fetch('/api/inventory')
+                ]);
+                
+                products = await productsResponse.json();
+                inventory = await inventoryResponse.json();
+                
+                populateProductSelect();
+                updateOverview();
+            } catch (error) {
+                console.error('Error loading data:', error);
+            }
+        }
+
+        // Populate product dropdown
+        function populateProductSelect() {
+            const select = document.getElementById('product-select');
+            select.innerHTML = '<option value="">Choose a product...</option>';
+            
+            products.forEach(product => {
+                const option = document.createElement('option');
+                option.value = product['Sage ID'];
+                option.textContent = `${product['Category']} - ${product['Sage ID']} - ${product['Item Name']}`;
+                select.appendChild(option);
+            });
+        }
+
+        // Handle import/export
+        async function handleMovement(type) {
+            const sageId = document.getElementById('product-select').value;
+            const quantity = parseInt(document.getElementById('quantity').value);
+            const monthSelect = document.getElementById('month-select');
+            const selectedMonth = monthSelect.value;
+            // Create a date string for the current day in the selected month
+            const movementDate = `${selectedMonth}-15T12:00:00`;
+            
+            if (!sageId || !quantity || !selectedMonth) {
+                alert('Please select a product, quantity, and month');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/update_stock', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        sageId: sageId,
+                        quantity: type === 'import' ? quantity : -quantity,
+                        date: movementDate
+                    })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    inventory[sageId] = result;
+                    updateOverview();
+                    await loadMovementHistory(); // Make sure to wait for this to complete
+                    document.getElementById('quantity').value = '';
+                    document.getElementById('product-select').value = ''; // Reset product selection
+                } else {
+                    alert('Error updating stock');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error updating stock');
+            }
+        }
+
+        // Update overview table and charges
+        async function updateOverview() {
+            const tbody = document.querySelector('#inventory-table tbody');
+            tbody.innerHTML = '';
+
+            products.forEach(product => {
+                const inv = inventory[product['Sage ID']] || {
+                    current_stock: 0,
+                    pallets_moved: 0,
+                    max_pallets: 0
+                };
+
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${product['Category']}</td>
+                    <td>${product['Sage ID']}</td>
+                    <td>${product['Item Name']}</td>
+                    <td>${inv.current_stock}</td>
+                    <td>${inv.pallets_moved}</td>
+                    <td>${inv.max_pallets}</td>
+                `;
+            });
+
+        }
+
+        // Populate month selector
+        function populateMonthSelect() {
+            const select = document.getElementById('month-select');
+            const now = new Date();
+            
+            // Generate last 12 months
+            for(let i = 0; i < 12; i++) {
+                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                const monthStr = d.toISOString().slice(0, 7);
+                const option = document.createElement('option');
+                option.value = monthStr;
+                option.textContent = d.toLocaleString('default', { month: 'long', year: 'numeric' });
+                select.appendChild(option);
+            }
+
+            // Load movement history for selected month
+            select.addEventListener('change', loadMovementHistory);
+        }
+
+        // Load and display movement history
+        async function loadMovementHistory() {
+            const month = document.getElementById('month-select').value || new Date().toISOString().slice(0, 7); // Use current month if none selected
+            try {
+                const response = await fetch(`/api/movement_history?month=${month}`);
+                const history = await response.json();
+                
+                const tbody = document.querySelector('#movement-table tbody');
+                tbody.innerHTML = '';
+                
+                // Sort history by date in descending order (newest first)
+                history.sort((a, b) => new Date(b.date) - new Date(a.date));
+                
+                history.forEach(record => {
+                    const product = products.find(p => p['Sage ID'] === record.sage_id);
+                    const row = tbody.insertRow();
+                    row.innerHTML = `
+                        <td>${new Date(record.date).toLocaleString()}</td>
+                        <td>${product ? product['Item Name'] : record.sage_id}</td>
+                        <td>${record.type}</td>
+                        <td>${Math.abs(record.quantity)}</td>
+                        <td><button onclick="deleteMovement('${record.date}')" class="btn btn-export">X</button></td>
+                    `;
+                });
+            } catch (error) {
+                console.error('Error loading movement history:', error);
+            }
+        }
+
+        // Call loadMovementHistory initially
+        loadMovementHistory();
+
+        // Add event listener for month select
+        document.getElementById('month-select').addEventListener('change', loadMovementHistory);
+
+        // Delete movement record
+        async function deleteMovement(date) {
+            if (!confirm('Are you sure you want to delete this movement?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/delete_movement', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ date: date })
+                });
+
+                if (response.ok) {
+                    loadMovementHistory();
+                    updateOverview();
+                } else {
+                    alert('Error deleting movement');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error deleting movement');
+            }
+        }
+
+        // Initialize
+        loadData();
+        populateMonthSelect();
+        checkUrlParams();
+    </script>
+</body>
+</html>
